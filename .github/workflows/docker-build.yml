@@ -1,18 +1,21 @@
 
-name: Docker Build and Test
+name: Build and Push to Amazon ECR
 
 on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    name: Test and build Docker image
+    name: Test, build and push Docker image
     runs-on: ubuntu-latest
+
+    outputs:
+      image_tag: ${{ steps.image-tag.outputs.tag }}
 
     steps:
       - name: Checkout repository
@@ -34,5 +37,26 @@ jobs:
       - name: Verify JAR artifact
         run: test -f target/exam-app-1.0.0.jar
 
-      - name: Build Docker image
-        run: docker build -t wishifai:latest .
+      - name: Set image tag
+        id: image-tag
+        run: echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: wishifai
+          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
+        run: |
+          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
