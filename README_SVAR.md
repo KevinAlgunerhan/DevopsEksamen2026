@@ -310,7 +310,145 @@ Dette var en viktig verifikasjon fordi det bekrefter at løsningen fungerer ende
 
 ---
 
-# Task 3 – Observability
+## Task 3 – Observability 
+
+### 3.1 Mål og tilnærming
+
+Målet med observability-implementasjonen er å gjøre Wishifai-applikasjonen målbar og enklere å feilsøke i produksjon. Løsningen skal gi innsikt i applikasjonens tilgjengelighet, ytelse, ressursbruk og feil i integrasjonene mot AWS-tjenestene.
+
+Jeg har implementert observability ved hjelp av **Spring Boot Actuator, Micrometer og Amazon CloudWatch**. Dette gir både applikasjonsspesifikke målinger og tekniske driftsmålinger fra Spring Boot og JVM.
+
+### 3.2 Spring Boot Actuator og Micrometer
+
+Spring Boot Actuator er konfigurert for å eksponere relevante endepunkter:
+
+- `health` – viser applikasjonens helsetilstand.
+- `info` – gir applikasjonsinformasjon.
+- `metrics` – eksponerer tilgjengelige applikasjonsmålinger.
+- `prometheus` – eksponerer målinger i Prometheus-format.
+
+Micrometer brukes til å samle inn målinger fra applikasjonen. CloudWatch-registry publiserer målingene til AWS CloudWatch under namespace `wishifai`, med publisering omtrent hvert minutt.
+
+Dette gir mulighet til å overvåke applikasjonen uten å implementere et separat overvåkingssystem.
+
+### 3.3 Applikasjonsmålinger
+
+Jeg har instrumentert sentrale deler av bildeanalyseprosessen for å kunne følge med på både funksjonalitet og ytelse.
+
+Følgende egendefinerte målinger publiseres til CloudWatch:
+
+| Måling | Beskrivelse |
+|---|---|
+| `wishifai.images.analyzed.count` | Antall analyserte bilder |
+| `wishifai.gifts.generated.count` | Antall genererte gaveforslag |
+| `wishifai.bedrock.duration.*` | Måling av responstid fra Amazon Bedrock |
+| `wishifai.rekognition.duration.*` | Måling av responstid fra Amazon Rekognition |
+| `wishifai.bedrock.parse.failures.count` | Antall feil ved parsing av Bedrock-svar |
+| `wishifai.analysis.count.count` | Antall analyseoperasjoner |
+| `wishifai.gifts.per.request.*` | Målinger av antall gaveforslag per forespørsel |
+
+I tillegg samles HTTP-målinger fra Spring Boot, blant annet antall forespørsler, responstid, HTTP-status og endepunkt.
+
+Dette gjør det mulig å identifisere om en eventuell ytelsesflaskehals ligger i selve applikasjonen eller i en ekstern AWS-integrasjon.
+
+### 3.4 CloudWatch Dashboard
+
+Jeg har opprettet et eget CloudWatch-dashboard kalt **Wishifai-Observability**. Dashboardet gir en samlet oversikt over applikasjonens viktigste driftsmålinger.
+
+Dashboardet inneholder ni grafer:
+
+1. **Successful Image Analysis Requests** – antall vellykkede bildeanalyseforespørsler.
+2. **Image Analysis Response Time** – gjennomsnittlig responstid for bildeanalyse.
+3. **JVM Heap Memory – G1 Eden Space** – overvåking av JVM-minnebruk.
+4. **Process CPU Usage** – prosessens CPU-bruk.
+5. **Images Analyzed** – antall analyserte bilder.
+6. **Gifts Generated** – antall genererte gaveforslag.
+7. **Bedrock Parse Failures** – antall feil ved parsing av Bedrock-svar.
+8. **Bedrock Response Time** – responstid fra Bedrock.
+9. **Rekognition Response Time** – responstid fra Rekognition.
+
+Dashboardet bruker CloudWatch-målinger med relevante dimensjoner, blant annet HTTP-metode, endepunkt og statuskode for å skille vellykkede analyseforespørsler fra andre HTTP-kall.
+
+For å sikre at også målinger med lav trafikk blir synlige, er de fleste grafene konfigurert med en periode på én time. Dashboardet kan undersøkes over en tidsperiode på sju dager for å få et bedre bilde av utviklingen.
+
+**Verifisering:** Dashboardet er deployet gjennom Terraform. Jeg har åpnet dashboardet i AWS CloudWatch, valgt tidsperioden «Last 7 days» og bekreftet at alle ni grafene viser måledata fra den kjørende applikasjonen.
+
+### 3.5 CloudWatch Logs
+
+Applikasjonens logger sendes til Amazon CloudWatch Logs gjennom ECS-konfigurasjonen.
+
+Log group:
+
+`/ecs/wishifai`
+
+Loggene har en konfigurert retention-periode på **30 dager**.
+
+Dette gjør det mulig å undersøke oppstartsproblemer, applikasjonsfeil og problemer med AWS-integrasjonene uten å måtte koble seg direkte til containeren.
+
+En sentral fordel er at loggene er samlet på ett sted, uavhengig av hvilken ECS-container som håndterer forespørselen.
+
+### 3.6 CloudWatch Alarm
+
+Jeg har konfigurert en CloudWatch-alarm for feil ved parsing av svar fra Amazon Bedrock.
+
+Alarm:
+
+`wishifai-bedrock-parse-failures`
+
+Konfigurasjonen overvåker målingen:
+
+`wishifai.bedrock.parse.failures.count`
+
+Alarmen bruker følgende betingelser:
+
+- Namespace: `wishifai`
+- Metric: `wishifai.bedrock.parse.failures.count`
+- Statistic: `Sum`
+- Period: 60 sekunder
+- Threshold: Større enn eller lik 1
+- Evaluation periods: 1
+- Treat missing data: `notBreaching`
+
+Dersom minst én parse-feil registreres i evalueringsperioden, går alarmen til `ALARM`-tilstand.
+
+Jeg valgte denne målingen fordi ugyldige eller uventede svar fra Bedrock kan føre til at applikasjonen ikke klarer å generere gaveforslag, selv om selve AWS-kallet blir gjennomført.
+
+Alarmen ble verifisert i AWS CloudWatch og viste `OK` når den siste observerte målingen var 0.
+
+Det er ikke konfigurert SNS-varsling. Alarmens tilstand kan overvåkes direkte i CloudWatch.
+
+### 3.7 Infrastructure as Code
+
+CloudWatch-dashboardet, alarmen og log group er definert i Terraform under `terraform/main.tf`.
+
+Dette gir flere fordeler:
+
+- Overvåkingsressursene kan gjenskapes fra kode.
+- Konfigurasjonen kan versjonskontrolleres sammen med resten av infrastrukturen.
+- Endringer kan kontrolleres med `terraform plan` før de gjennomføres.
+- Dashboard og alarmer blir en del av samme infrastruktur som ECS-tjenesten.
+
+Etter oppdateringen av dashboardet ble følgende resultat bekreftet:
+
+`Apply complete! Resources: 0 added, 1 changed, 0 destroyed.`
+
+Dette viser at dashboardet ble oppdatert uten å opprette, slette eller endre andre AWS-ressurser.
+
+### 3.8 Resultat og vurdering
+
+Observability-løsningen gir innsyn i tre viktige områder:
+
+**Tilgjengelighet og funksjonalitet:** HTTP-målingene og antall vellykkede bildeanalyseforespørsler viser om API-et behandler forespørsler som forventet.
+
+**Ytelse og ressursbruk:** Responstider fra Bedrock og Rekognition, CPU-bruk og JVM-minne gjør det mulig å identifisere potensielle flaskehalser.
+
+**Feil og feilsøking:** CloudWatch Logs og alarmen for Bedrock parse-feil gjør det enklere å oppdage og undersøke problemer.
+
+Jeg har valgt CloudWatch fordi applikasjonen allerede kjører på AWS ECS og bruker AWS-tjenester som S3, Rekognition og Bedrock. Ved å bruke CloudWatch får vi en integrert overvåkingsløsning uten å måtte drifte en separat monitoreringsplattform.
+
+Løsningen kan videreutvikles med blant annet SNS-varsling, flere alarmer for HTTP 5xx-feil og høy responstid, samt mer avanserte dashboards for trafikk og feilrater.
+
+Se bilder av dashboard graf docs/screenshots
 
 
 

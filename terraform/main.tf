@@ -199,10 +199,10 @@ resource "aws_cloudwatch_log_group" "wishifai" {
 # ============================================================
 
 resource "aws_ecs_express_gateway_service" "wishifai" {
-  service_name            = "wishifai"
-  execution_role_arn      = aws_iam_role.ecs_execution.arn
+  service_name             = "wishifai"
+  execution_role_arn       = aws_iam_role.ecs_execution.arn
   infrastructure_role_arn = aws_iam_role.ecs_infrastructure.arn
-  task_role_arn           = aws_iam_role.ecs_task.arn
+  task_role_arn            = aws_iam_role.ecs_task.arn
 
   health_check_path = "/api/health"
 
@@ -241,4 +241,306 @@ resource "aws_ecs_express_gateway_service" "wishifai" {
     aws_iam_role_policy_attachment.ecs_infrastructure,
     aws_iam_role_policy.ecs_task_permissions
   ]
+}
+
+
+# ============================================================
+# CLOUDWATCH ALARM
+# Monitors Bedrock response parsing failures
+# ============================================================
+
+resource "aws_cloudwatch_metric_alarm" "bedrock_parse_failures" {
+  alarm_name        = "${var.project_name}-bedrock-parse-failures"
+  alarm_description = "Triggers when Wishifai encounters Bedrock response parsing failures"
+
+  namespace   = "wishifai"
+  metric_name = "wishifai.bedrock.parse.failures.count"
+
+  statistic = "Sum"
+  period    = 60
+
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+
+  treat_missing_data = "notBreaching"
+
+  tags = {
+    Name        = "Wishifai Bedrock Parse Failures"
+    Environment = var.environment
+  }
+}
+
+
+# ============================================================
+# CLOUDWATCH DASHBOARD
+# Centralized application observability
+# ============================================================
+
+resource "aws_cloudwatch_dashboard" "wishifai" {
+  dashboard_name = "Wishifai-Observability"
+
+  dashboard_body = jsonencode({
+    widgets = [
+
+      # ------------------------------------------------------
+      # HTTP REQUESTS - SUCCESSFUL IMAGE ANALYSIS
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 0
+        y      = 0
+        width  = 12
+        height = 6
+
+        properties = {
+          title  = "Successful Image Analysis Requests"
+          region = var.aws_region
+          period = 3600
+          view   = "timeSeries"
+          stat   = "Sum"
+
+          metrics = [
+            [
+              "wishifai",
+              "http.server.requests.count",
+              "exception", "none",
+              "method", "POST",
+              "error", "none",
+              "uri", "/api/analyze",
+              "outcome", "SUCCESS",
+              "status", "200"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # HTTP RESPONSE TIME - IMAGE ANALYSIS
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 12
+        y      = 0
+        width  = 12
+        height = 6
+
+        properties = {
+          title  = "Image Analysis Response Time"
+          region = var.aws_region
+          period = 3600
+          view   = "timeSeries"
+          stat   = "Average"
+
+          metrics = [
+            [
+              "wishifai",
+              "http.server.requests.avg",
+              "exception", "none",
+              "method", "POST",
+              "error", "none",
+              "uri", "/api/analyze",
+              "outcome", "SUCCESS",
+              "status", "200"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # JVM HEAP MEMORY - G1 EDEN SPACE
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 0
+        y      = 6
+        width  = 12
+        height = 6
+
+        properties = {
+          title  = "JVM Heap Memory - G1 Eden Space"
+          region = var.aws_region
+          period = 3600
+          view   = "timeSeries"
+          stat   = "Average"
+
+          metrics = [
+            [
+              "wishifai",
+              "jvm.memory.used.value",
+              "area", "heap",
+              "id", "G1 Eden Space"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # PROCESS CPU
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 12
+        y      = 6
+        width  = 12
+        height = 6
+
+        properties = {
+          title  = "Process CPU Usage"
+          region = var.aws_region
+          period = 300
+          view   = "timeSeries"
+          stat   = "Average"
+
+          metrics = [
+            [
+              "wishifai",
+              "process.cpu.usage.value"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # IMAGES ANALYZED
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 0
+        y      = 12
+        width  = 8
+        height = 6
+
+        properties = {
+          title  = "Images Analyzed"
+          region = var.aws_region
+          period = 3600
+          view   = "timeSeries"
+          stat   = "Sum"
+
+          metrics = [
+            [
+              "wishifai",
+              "wishifai.images.analyzed.count"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # GIFTS GENERATED
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 8
+        y      = 12
+        width  = 8
+        height = 6
+
+        properties = {
+          title  = "Gifts Generated"
+          region = var.aws_region
+          period = 3600
+          view   = "timeSeries"
+          stat   = "Sum"
+
+          metrics = [
+            [
+              "wishifai",
+              "wishifai.gifts.generated.count"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # BEDROCK PARSE FAILURES
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 16
+        y      = 12
+        width  = 8
+        height = 6
+
+        properties = {
+          title  = "Bedrock Parse Failures"
+          region = var.aws_region
+          period = 3600
+          view   = "timeSeries"
+          stat   = "Sum"
+
+          metrics = [
+            [
+              "wishifai",
+              "wishifai.bedrock.parse.failures.count"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # BEDROCK RESPONSE TIME
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 0
+        y      = 18
+        width  = 12
+        height = 6
+
+        properties = {
+          title  = "Bedrock Response Time (Milliseconds)"
+          region = var.aws_region
+          period = 3600
+          view   = "timeSeries"
+          stat   = "Average"
+
+          metrics = [
+            [
+              "wishifai",
+              "wishifai.bedrock.duration.avg"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # REKOGNITION RESPONSE TIME
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 12
+        y      = 18
+        width  = 12
+        height = 6
+
+        properties = {
+          title  = "Rekognition Response Time (Milliseconds)"
+          region = var.aws_region
+          period = 3600
+          view   = "timeSeries"
+          stat   = "Average"
+
+          metrics = [
+            [
+              "wishifai",
+              "wishifai.rekognition.duration.avg"
+            ]
+          ]
+        }
+      }
+    ]
+  })
 }
