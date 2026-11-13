@@ -163,7 +163,7 @@ resource "aws_ecs_express_gateway_service" "wishifai" {
   memory = "2048"
 
   primary_container {
-    image          = "${aws_ecr_repository.wishifai.repository_url}:54d3fee"
+    image          = "${aws_ecr_repository.wishifai.repository_url}:${var.image_tag}"
     container_port = 8080
 
     environment {
@@ -173,7 +173,7 @@ resource "aws_ecs_express_gateway_service" "wishifai" {
 
     environment {
       name  = "S3_BUCKET"
-      value = "wishifai-uploads"
+      value = aws_s3_bucket.uploads.bucket
     }
 
     environment {
@@ -227,7 +227,7 @@ resource "aws_cloudwatch_metric_alarm" "bedrock_parse_failures" {
 
 # ============================================================
 # CLOUDWATCH DASHBOARD
-# Centralized application observability
+# Centralized application and infrastructure observability
 # ============================================================
 
 resource "aws_cloudwatch_dashboard" "wishifai" {
@@ -488,6 +488,96 @@ resource "aws_cloudwatch_dashboard" "wishifai" {
             [
               "wishifai",
               "wishifai.rekognition.duration.avg"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # ECS CPU UTILIZATION
+      # AWS/ECS infrastructure metric
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 0
+        y      = 24
+        width  = 8
+        height = 6
+
+        properties = {
+          title  = "ECS CPU Utilization"
+          region = var.aws_region
+          period = 300
+          view   = "timeSeries"
+          stat   = "Average"
+
+          metrics = [
+            [
+              "AWS/ECS",
+              "CPUUtilization",
+              "ClusterName", "default",
+              "ServiceName", "wishifai"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # ECS MEMORY UTILIZATION
+      # AWS/ECS infrastructure metric
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 8
+        y      = 24
+        width  = 8
+        height = 6
+
+        properties = {
+          title  = "ECS Memory Utilization"
+          region = var.aws_region
+          period = 300
+          view   = "timeSeries"
+          stat   = "Average"
+
+          metrics = [
+            [
+              "AWS/ECS",
+              "MemoryUtilization",
+              "ClusterName", "default",
+              "ServiceName", "wishifai"
+            ]
+          ]
+        }
+      },
+
+      # ------------------------------------------------------
+      # ECS RUNNING TASKS
+      # AWS/ECS live task count metric
+      # ------------------------------------------------------
+
+      {
+        type   = "metric"
+        x      = 16
+        y      = 24
+        width  = 8
+        height = 6
+
+        properties = {
+          title  = "ECS Live Task Count"
+          region = var.aws_region
+          period = 300
+          view   = "timeSeries"
+          stat   = "Average"
+
+          metrics = [
+            [
+              "AWS/ECS",
+              "LiveTaskCount",
+              "ClusterName", "default",
+              "ServiceName", "wishifai"
             ]
           ]
         }
