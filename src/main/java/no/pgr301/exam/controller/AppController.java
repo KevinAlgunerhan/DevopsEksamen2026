@@ -1,7 +1,10 @@
+
 package no.pgr301.exam.controller;
+
 
 import no.pgr301.exam.model.AnalyzeResponse;
 import no.pgr301.exam.service.WishlistService;
+import no.pgr301.exam.validation.ImageValidator;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,18 +22,38 @@ import java.util.Map;
 public class AppController {
 
     private final WishlistService wishlist;
+    private final ImageValidator imageValidator;
 
-    public AppController(WishlistService wishlist) {
+    public AppController(
+            WishlistService wishlist,
+            ImageValidator imageValidator
+    ) {
         this.wishlist = wishlist;
+        this.imageValidator = imageValidator;
     }
 
     @GetMapping("/health")
     public Map<String, Object> health() {
-        return Map.of("status", "UP", "timestamp", Instant.now().toString());
+        return Map.of(
+                "status", "UP",
+                "timestamp", Instant.now().toString()
+        );
     }
 
-    @PostMapping(value = "/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public AnalyzeResponse analyze(@RequestParam("image") MultipartFile image) throws IOException {
-        return wishlist.process(image.getBytes(), image.getOriginalFilename(), image.getContentType());
+    @PostMapping(
+            value = "/analyze",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public AnalyzeResponse analyze(
+            @RequestParam("image") MultipartFile image
+    ) throws IOException {
+
+        byte[] imageBytes = imageValidator.validateAndRead(image);
+
+        return wishlist.process(
+                imageBytes,
+                image.getOriginalFilename(),
+                image.getContentType()
+        );
     }
 }
